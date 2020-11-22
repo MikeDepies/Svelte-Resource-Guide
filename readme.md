@@ -189,7 +189,7 @@ export function writer<WriteMap extends {}>(): MessageWriter<WriteMap> {
 }
 ```
 
-And we can use it jue like the reader.
+And we can use it just like the reader.
 ```svelte
 <script>
 import { reader, writer } from "./WebsocketRouter"
