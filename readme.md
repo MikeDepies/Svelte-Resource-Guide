@@ -152,8 +152,9 @@ export function reader<T extends {} = any>(): MessageReader<T> {
 ```
 
 In use it looks like the following in a svelte component.
-```html
+```svelte
 <script>
+import { reader } from "./WebsocketRouter"
 type HelloWorld = {
   "hello" : string
 }
