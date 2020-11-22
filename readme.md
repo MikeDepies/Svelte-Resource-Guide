@@ -152,7 +152,7 @@ export function reader<T extends {} = any>(): MessageReader<T> {
 ```
 
 In use it looks like the following in a svelte component.
-```typescript
+```html
 <script>
 type HelloWorld = {
   "hello" : string
