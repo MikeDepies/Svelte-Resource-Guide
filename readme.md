@@ -1,5 +1,7 @@
 - [Svelte Crossfade](#svelte-crossfade)
     - [Examples](#examples)
+- [Websocket Message Router Store](#websocket-message-router-store)
+  - [Message Router](#message-router)
 
 
 ## Svelte Crossfade
@@ -14,3 +16,149 @@ One solution to deal with this particular problem is to use the grid layout to f
 * [Tab Navigation with animated crossfade div transition](https://svelte.dev/repl/efbe0f92d43a403ea2e5ac6251a55f18?version=3.29.7)
 
 * [Notification Stack - if/else](https://svelte.dev/repl/92d5891ad4324437aa77fd4574ce4e2e?version=3.29.7)
+
+
+## Websocket Message Router Store
+
+The svelte stores provide a convienent way to map incomming websocket messages to typed stores. Below is a basic recipe that provides simple topic messaging. This can be easily extended into a more complete system. Below we setup a store that is connected represents a websocket. This begins the chain of dependency for the rest of the data. If the connection is killed, this provides a resonable way to reconnect and re-establish all of the message handling. This also provides a way to only require websockets when in use without having to give much thought on managing the actual resource.
+
+```typescript
+const wsUrl = WEBSOCKET //ex: ws://localhost:8080
+let _websocket: WebSocket | undefined
+let _message = writable<string | undefined>(undefined)
+async function createManagedWebsocket() {
+  return new Promise<WebSocket>((resolve, reject) => {
+    if (_websocket) resolve(_websocket)
+    else {
+      let ws = new WebSocket(wsUrl)
+      ws.onopen = (openEvent) => {
+        ws.onmessage = (msgEvent: MessageEvent<string>) => {
+          _message.set(msgEvent.data) //Write message into the message store. This is the kernal store for routing.
+        }
+        ws.onclose = (closeEvent) => {
+          _websocket = undefined
+          _message.set(undefined)
+        }
+        ws.onerror = (errorEvent) => {
+          _websocket = undefined
+          _message.set(undefined)
+        }
+        resolve(ws)
+      }
+    }
+  })
+}
+```
+
+We will only have one websocket connection open so we declare the websocket at the top level (i.e. singleton). We represent the websocket as a promise since we would like to prevent the ability to start writting mesages before connection is established. This will defer into an ```(undefined | Websocket)``` store later.
+
+```typescript
+const { subscribe } = readable(undefined, (set: (value: WebSocket | undefined) => void) => {
+    const ws = createManagedWebsocket()
+    ws.then(ws => {
+      // console.log(ws)
+      // console.log(_websocket)
+      if (ws !== _websocket) {
+        set(ws)
+        _websocket = ws
+      }
+    }).catch(e => {
+      console.error("error in opening websocket")
+    })
+  return function closeWebsocket() {
+    _websocket?.close()
+    _websocket = undefined //TEMP
+    _message.set(undefined)
+  }
+})
+```
+
+This is an optional design, but it is somewhat convient to represent writing to the websocket with an assignment operator.
+```typescript
+export const websocket = {
+  subscribe,
+  set(value: string) {
+    if (_websocket)
+      _websocket.send(value)
+    else {
+      console.warn(`Websocket was closed but a message was attempted to be sent. Message: ${value}`)
+    }
+  }
+}
+```
+
+Now the reader part of the websocket needs to be implemented. Here the message acts as a layer of abstraction. In this custom store, the set function marshals objects into strings and passes them to the websocket. The subscribe function just delegates work to the _message store (last message received) and makes sure the websocket is turned on. This couples the subscriptions on ```message``` store to fan out uniformally to the ```_message``` and ```_websocket``` stores
+```typescript
+const { subscribeMessage } = _message
+export const message {
+  set<T>(value: T) {
+    websocket.set(JSON.stringify(value)) //Json adapter that marshals any data passed into 
+  },
+  subscribe: (run: (value: string | undefined) => void, invalidate?: (value?: string | undefined) => void) => {
+    const writableUnsubscribe = subscribeMessage(run)
+    // let _ws: WebSocket | undefined
+    const wsUnsubscribe = websocket.subscribe(ws => {
+      // _ws = ws
+      //this forwards the subscription signal to the websocket to make sure we grab a connection if we don't have one.
+    })
+    return () => {
+      writableUnsubscribe() //make sure to disconnect dependencies when this stores shutsdown.
+      wsUnsubscribe()
+    }
+  }
+}
+```
+
+### Message Router
+This is the message reader. The `RouteMap` is an interface that takes the form of _topic_:_schema_. For example:
+```typescript
+type HelloWorld = {
+  "hello" : string
+}
+```
+Here we are declaring that there is a topic: "_hello_" that will have string data broadcasted. This allows us to describe the routes with interfaces or type descriptions. Below is the `MessageReader` type and the factory function that creates a message reader for a given type.
+
+```typescript
+export type MessageReader<RouteMap> = {
+  read: <RouteKey extends Extract<keyof RouteMap, string>> (topic: RouteKey) => Readable<RouteMap[RouteKey] | undefined>
+  readWithDefault: <RouteKey extends Extract<keyof RouteMap, string>> (topic: RouteKey, value: any) => Readable<RouteMap[RouteKey]>
+}
+export function reader<T extends {} = any>(): MessageReader<T> {
+  return {
+    read<RouteKey extends Extract<keyof T, string>>(topic: RouteKey) {
+      const derivied = derived(message, ($message: string | undefined, set: (x: T[RouteKey]) => void) => {
+        if ($message) {
+          const data: SimpleMessage<T[RouteKey]> = JSON.parse($message)
+          if (data.subject === topic) {
+            set(data.data)
+          }
+        }
+      })
+      return derivied
+    },
+    readWithDefault<RouteKey extends Extract<keyof T, string>>(topic: RouteKey, value: T[RouteKey]) {
+      const derivied = derived(message, ($message: string | undefined, set: (x: T[RouteKey]) => void) => {
+        if ($message) {
+          const data: SimpleMessage<T[RouteKey]> = JSON.parse($message)
+          if (data.subject === topic) {
+            set(data.data)
+          }
+        }
+      }, value)
+      return derivied
+    }
+  }
+}
+```
+
+In use it looks like the following in a svelte component.
+```typescript
+<script>
+type HelloWorld = {
+  "hello" : string
+}
+const reader = reader<HelloWorld>()
+const hello =  reader.read("hello")
+</script>
+<div>Hello { $hello ?? "awaiting message" }</div>
+```
