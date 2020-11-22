@@ -123,13 +123,18 @@ export type MessageReader<RouteMap> = {
   read: <RouteKey extends Extract<keyof RouteMap, string>> (topic: RouteKey) => Readable<RouteMap[RouteKey] | undefined>
   readWithDefault: <RouteKey extends Extract<keyof RouteMap, string>> (topic: RouteKey, value: any) => Readable<RouteMap[RouteKey]>
 }
+type SimpleMessage<T> = {
+  topic: string,
+  data: T
+}
+
 export function reader<T extends {} = any>(): MessageReader<T> {
   return {
     read<RouteKey extends Extract<keyof T, string>>(topic: RouteKey) {
       const derivied = derived(message, ($message: string | undefined, set: (x: T[RouteKey]) => void) => {
         if ($message) {
           const data: SimpleMessage<T[RouteKey]> = JSON.parse($message)
-          if (data.subject === topic) {
+          if (data.topic === topic) {
             set(data.data)
           }
         }
@@ -140,7 +145,7 @@ export function reader<T extends {} = any>(): MessageReader<T> {
       const derivied = derived(message, ($message: string | undefined, set: (x: T[RouteKey]) => void) => {
         if ($message) {
           const data: SimpleMessage<T[RouteKey]> = JSON.parse($message)
-          if (data.subject === topic) {
+          if (data.topic === topic) {
             set(data.data)
           }
         }
@@ -162,4 +167,41 @@ const reader = reader<HelloWorld>()
 const hello =  reader.read("hello")
 </script>
 <div>Hello { $hello ?? "awaiting message" }</div>
+```
+
+We can also extend this type enforcment to our writing onto the websocket. Below is the type definition for a message writer and factory function.
+
+```typescript
+import { message } from "./Websocket"
+
+export function send<T>(m: SimpleMessage<T>) {
+  message.set(m)
+}
+type MessageWriter<WriteMap> = {
+  write: <WriteKey extends Extract<keyof WriteMap, string>>(topic: WriteKey, data: WriteMap[WriteKey]) => void
+}
+export function writer<WriteMap extends {}>(): MessageWriter<WriteMap> {
+  return {
+    write: <WriteKey extends Extract<keyof WriteMap, string>>(topic: WriteKey, data: WriteMap[WriteKey]) => {
+      send({ subject : topic, data })
+    }
+  }
+}
+```
+
+And we can use it jue like the reader.
+```svelte
+<script>
+import { reader, writer } from "./WebsocketRouter"
+type HelloWorld = {
+  "hello" : string
+}
+const reader = reader<HelloWorld>()
+const writer = writer<HelloWorld>()
+const helloReader = reader.read("hello")
+setTimeout(() => {
+  writer.write("hello", "world")
+}, 1_000)
+</script>
+<div>Hello { $helloReader ?? "awaiting message" }</div>
 ```
