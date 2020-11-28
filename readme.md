@@ -24,6 +24,9 @@ The svelte stores provide a convienent way to map incomming websocket messages t
 
 >__Note__: If you want to make sure the socket never closes, you can simply import the websocket to the root of your application and just passively watch it to keep the unsubscribe from occuring.
 
+We will only have one websocket connection open so we declare the `_websocket` at the top level (i.e. singleton).
+>This bridge between establishing a connection and the svelte store could probably be cleaned up to remove the need for the backing `_websocket` variable
+
 ```typescript
 const wsUrl = WEBSOCKET //ex: ws://localhost:8080
 let _websocket: WebSocket | undefined
@@ -52,7 +55,8 @@ async function createManagedWebsocket() {
 }
 ```
 
-We will only have one websocket connection open so we declare the websocket at the top level (i.e. singleton). We represent the websocket as a promise since we would like to prevent the ability to start writting mesages before connection is established. This will defer into an ```(undefined | Websocket)``` store later.
+We represent the websocket as a promise since we would like to prevent the ability to start writting mesages before connection is established. This will defer into an ```(undefined | Websocket)``` store later.
+
 
 ```typescript
 const { subscribe } = readable(undefined, (set: (value: WebSocket | undefined) => void) => {
@@ -73,7 +77,7 @@ const { subscribe } = readable(undefined, (set: (value: WebSocket | undefined) =
 })
 ```
 
-This is an optional design, but it is somewhat convient to represent writing to the websocket with an assignment operator.
+This is an optional design, but it is somewhat convenient to represent writing to the websocket with an assignment operator.
 ```typescript
 export const websocket = {
   subscribe,
