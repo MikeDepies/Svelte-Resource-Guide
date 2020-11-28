@@ -20,7 +20,9 @@ One solution to deal with this particular problem is to use the grid layout to f
 
 ## Websocket Message Router Store
 
-The svelte stores provide a convienent way to map incomming websocket messages to typed stores. Below is a basic recipe that provides simple topic messaging. This can be easily extended into a more complete system. Below we setup a store that is connected represents a websocket. This begins the chain of dependency for the rest of the data. If the connection is killed, this provides a resonable way to reconnect and re-establish all of the message handling. This also provides a way to only require websockets when in use without having to give much thought on managing the actual resource.
+The svelte stores provide a convienent way to map incomming websocket messages to typed stores. Below is a basic recipe that provides simple topic messaging. This can be easily extended into a more complete system. Below we setup a store that represents a websocket. When it is undefined, the assumption is that there is no available websocket resource (This could be due to an error with the websocket host). When a websocket successfully opens a connection, the handlers are attached and the store is now set the newly created websocket. This begins the chain of dependency for the rest of the data. If the connection is killed, this provides a resonable way to reconnect and re-establish all of the message handling. Because stores have an unsubscribe/subscribe behavior when the number of listeners goes from 0 -> 1 or 1 -> 0, we can shut down the resource if we don't need it active site wide.
+
+>__Note__: If you want to make sure the socket never closes, you can simply import the websocket to the root of your application and just passively watch it to keep the unsubscribe from occuring.
 
 ```typescript
 const wsUrl = WEBSOCKET //ex: ws://localhost:8080
@@ -56,8 +58,6 @@ We will only have one websocket connection open so we declare the websocket at t
 const { subscribe } = readable(undefined, (set: (value: WebSocket | undefined) => void) => {
     const ws = createManagedWebsocket()
     ws.then(ws => {
-      // console.log(ws)
-      // console.log(_websocket)
       if (ws !== _websocket) {
         set(ws)
         _websocket = ws
@@ -67,7 +67,7 @@ const { subscribe } = readable(undefined, (set: (value: WebSocket | undefined) =
     })
   return function closeWebsocket() {
     _websocket?.close()
-    _websocket = undefined //TEMP
+    _websocket = undefined
     _message.set(undefined)
   }
 })
