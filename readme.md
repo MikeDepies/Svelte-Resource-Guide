@@ -1,6 +1,7 @@
 - [Svelte Crossfade](#svelte-crossfade)
     - [Examples](#examples)
 - [Websocket Message Router Store](#websocket-message-router-store)
+  - [Creating The Websocket Store](#creating-the-websocket-store)
   - [Message Router](#message-router)
 
 
@@ -22,6 +23,27 @@ One solution to deal with this particular problem is to use the grid layout to f
 
 The svelte stores provide a convienent way to map incomming websocket messages to typed stores. Below is a basic recipe that provides simple topic messaging. This can be easily extended into a more complete system. Below we setup a store that represents a websocket. When it is undefined, the assumption is that there is no available websocket resource (This could be due to an error with the websocket host). When a websocket successfully opens a connection, the handlers are attached and the store is now set the newly created websocket. This begins the chain of dependency for the rest of the data. If the connection is killed, this provides a resonable way to reconnect and re-establish all of the message handling. Because stores have an unsubscribe/subscribe behavior when the number of listeners goes from 0 -> 1 or 1 -> 0, we can shut down the resource if we don't need it active site wide.
 
+
+Ontop of the Websocket store, we constantly push messages from the socket into a svelte writable store `_message`. Ontop of this `_message` store, we build two generic factory functions - a message writer and a message reader. These provide an abstraction and another expectation. The expectation is that all data must conform to the following schema.
+```javascript
+<T> {
+  topic : string,
+  data: T
+}
+```
+
+With this compromise in format, we can use this expectation to allow simple interface/type declarations to represent websocket type mappings. Where the fieldname of an object is the topic string, and the datatype associated represents the data incoming on the socket for that message. 
+
+Heres an example of a type mapping for websocket routes
+
+```typescript
+type MyWebsocketRoutes = {
+  "userSignedIn" : { userId : number, username : string }
+  "userSignedOut" : { userId : number }
+  "userMessage" : { userId : number, username : string, message: string, timestamp : number }
+}
+```
+### Creating The Websocket Store
 >__Note__: If you want to make sure the socket never closes, you can simply import the websocket to the root of your application and just passively watch it to keep the unsubscribe from occuring.
 
 We will only have one websocket connection open so we declare the `_websocket` at the top level (i.e. singleton).
@@ -55,7 +77,7 @@ async function createManagedWebsocket() {
 }
 ```
 
-We represent the websocket as a promise since we would like to prevent the ability to start writting mesages before connection is established. This will defer into an ```(undefined | Websocket)``` store later.
+We represent the websocket as a promise since we would like to prevent the ability to start writting mesages before connection is established. This will defer into an ```(undefined | Websocket)``` store later. As long as we hold true to this contract - that if the websocket store is undefined until the websocket succsesfully connects - allows us to simplify the rest of the uses down stream. We can then simply depend on the websocket Store and if its there, we we can use it. This compounds nicely with the message router we will lay ontop of this websocket store.
 
 
 ```typescript
@@ -93,16 +115,14 @@ export const websocket = {
 
 Now the reader part of the websocket needs to be implemented. Here the message acts as a layer of abstraction. In this custom store, the set function marshals objects into strings and passes them to the websocket. The subscribe function just delegates work to the _message store (last message received) and makes sure the websocket is turned on. This couples the subscriptions on ```message``` store to fan out uniformally to the ```_message``` and ```_websocket``` stores
 ```typescript
-const { subscribeMessage } = _message
+const { subscribe } = _message
 export const message {
   set<T>(value: T) {
     websocket.set(JSON.stringify(value)) //Json adapter that marshals any data passed into 
   },
   subscribe: (run: (value: string | undefined) => void, invalidate?: (value?: string | undefined) => void) => {
-    const writableUnsubscribe = subscribeMessage(run)
-    // let _ws: WebSocket | undefined
+    const writableUnsubscribe = subscribe(run)
     const wsUnsubscribe = websocket.subscribe(ws => {
-      // _ws = ws
       //this forwards the subscription signal to the websocket to make sure we grab a connection if we don't have one.
     })
     return () => {
